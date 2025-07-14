@@ -1,0 +1,31 @@
+# Output and log files
+output/*
+*.log
+
+# Temporary files
+*.tmp
+temp_*
+
+# Environment variables and credentials
+.env
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Keep output directory but ignore its contents
+!output/.gitkeep
