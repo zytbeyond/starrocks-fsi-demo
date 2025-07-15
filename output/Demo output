@@ -1,0 +1,1146 @@
+
+============================================================================
+STARROCKS FINANCIAL SERVICES INDUSTRY DEMO
+============================================================================
+
+Welcome to the StarRocks Financial Services Industry Demo. This demonstration will show how StarRocks enables real-time risk management for financial institutions.
+
+We'll showcase the three key features that make StarRocks ideal for financial services:
+
+1. Primary Key Tables for real-time updates with high query performance
+
+2. Automatic Materialized Views (AutoMV) for intelligent query optimization
+
+3. Dual Materialized View Approach for balancing real-time consistency and complex analytics
+
+Press Enter to continue...
+
+
+============================================================================
+STEP 1: BASELINE RISK METRICS
+============================================================================
+
+
+★ KEY FEATURE: PRIMARY KEY TABLES ★
+
+StarRocks' Primary Key Tables use a specialized Delete+Insert strategy with DelVector technology that provides 3-10x better query performance than traditional approaches. This enables real-time updates with high query performance.
+
+BUSINESS IMPACT: Think of this like updating your bank account balance instantly after each transaction. In traditional systems, updates might take hours - imagine not seeing your purchases reflected until the next day! For banks managing investments, outdated information can lead to poor decisions costing millions. StarRocks ensures everyone sees the latest data immediately, just like you'd expect from your banking app.
+
+First, let's look at the current risk metrics for GlobalBank's portfolios:
+
+- Portfolio Value: The total market value of each portfolio in USD
+
+- VaR (Value at Risk): Think of this like a weather forecast for financial storms. It tells you:
+
+  'There's a 95% chance your losses won't exceed this amount in the next day'
+
+  It's like knowing there's a 95% chance it won't rain more than 1 inch tomorrow
+
+- VaR Percentage: This shows VaR as a percentage of portfolio value
+
+  This is like saying 'you might lose up to 30% of your money' rather than a dollar amount
+
+  Higher percentages mean riskier investments - just like a higher chance of rain means you should bring an umbrella
+
+
+SQL:
+USE globalbank;
+
+SELECT 
+    portfolio_id, 
+    ROUND(total_portfolio_value, 2) AS portfolio_value_usd, 
+    ROUND(var_95_1day, 2) AS var_95_1day_usd, 
+    ROUND(var_95_1day / total_portfolio_value * 100, 2) AS var_95_pct, 
+    ROUND(var_99_10day, 2) AS var_99_10day_usd, 
+    ROUND(var_99_10day / total_portfolio_value * 100, 2) AS var_99_pct, 
+    calculation_time 
+FROM 
+    value_at_risk 
+ORDER BY 
+    portfolio_id;
+
+SQL:
+USE globalbank; SELECT portfolio_id, ROUND(total_portfolio_value, 2) AS portfolio_value_usd, ROUND(var_95_1day, 2) AS var_95_1day_usd, ROUND(var_95_1day / total_portfolio_value * 100, 2) AS var_95_pct, ROUND(var_99_10day, 2) AS var_99_10day_usd, ROUND(var_99_10day / total_portfolio_value * 100, 2) AS var_99_pct, calculation_time FROM value_at_risk ORDER BY portfolio_id;
+
+RESULT:
+
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+| portfolio_id     | portfolio_value_usd | var_95_1day_usd | var_95_pct | var_99_10day_usd | var_99_pct | calculation_time    |
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+| EQUITY_AUTO_01   |        182000000.00 |     53890200.00 |      29.61 |     240964798.76 |      132.4 | 2025-05-19 08:30:00 |
+| EQUITY_ENERGY_01 |         52720000.00 |     14743148.00 |      27.97 |      65922555.32 |     125.04 | 2025-05-19 08:30:00 |
+| EQUITY_TECH_01   |          9187500.00 |      3173821.88 |      34.55 |      14191436.47 |     154.46 | 2025-05-19 08:30:00 |
+| FIXED_INCOME_01  |        983200000.00 |    177910040.00 |       NULL |     795507476.05 |      80.91 | 2025-05-19 08:30:00 |
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+Notice that the EQUITY_TECH_01 portfolio has the highest VaR percentage at 34.55%, indicating it's the riskiest portfolio.
+
+The FIXED_INCOME_01 portfolio has the largest absolute VaR at 77.9M, but it's also the largest portfolio at 83.2M.
+
+These calculations are typically performed overnight in most banks. But what happens when market conditions change suddenly during the trading day?
+
+
+============================================================================
+STEP 2: SIMULATING MARKET VOLATILITY EVENT
+============================================================================
+
+Now, let's simulate a sudden market shock - perhaps triggered by unexpected economic news or geopolitical events.
+
+In this scenario:
+
+1. US Treasury prices drop and volatility increases by 50%
+
+2. Tech stocks drop by 2% and volatility increases by 27%
+
+3. Energy stocks drop by 1% and volatility increases by 20%
+
+4. Automotive stocks drop by 3% and volatility increases by 30%
+
+
+
+In a traditional data warehouse, risk managers would need to wait for the next batch processing cycle to see how this affects their risk exposure - potentially hours later.
+
+With StarRocks, we can see the impact immediately as the new market data arrives.
+
+
+SQL:
+-- Update market data with increased volatility for US Treasury
+INSERT INTO market_data VALUES 
+('US912810TW04', '2025-05-19 09:00:00', 97.85, 97.80, 97.90, 2200000, 0.18, 0, 
+ 'Government', 'North America', '2025-05-19 09:00:00');
+
+-- Update market data with increased volatility for tech stock
+INSERT INTO market_data VALUES 
+('US0378331005', '2025-05-19 09:00:00', 178.50, 178.45, 178.55, 850000, 0.28, 2790000000000, 
+ 'Technology', 'North America', '2025-05-19 09:00:00');
+
+-- Update market data with increased volatility for energy stock
+INSERT INTO market_data VALUES 
+('GB0007980591', '2025-05-19 09:00:00', 522.00, 521.90, 522.10, 450000, 0.22, 104500000000, 
+ 'Energy', 'Europe', '2025-05-19 09:00:00');
+
+-- Update market data with increased volatility for automotive stock
+INSERT INTO market_data VALUES 
+('JP3633400001', '2025-05-19 09:00:00', 7061.50, 7060.00, 7063.00, 220000, 0.25, 99500000000, 
+ 'Automotive', 'Asia', '2025-05-19 09:00:00');
+
+Market data has been updated with new prices and volatility values.
+
+
+
+============================================================================
+STEP 3: UPDATED RISK METRICS (MILLISECONDS LATER)
+============================================================================
+
+
+★ KEY FEATURE: REAL-TIME UPDATES ★
+
+StarRocks' Primary Key Tables enable instant updates to risk metrics as soon as new market data arrives. This is critical for financial institutions that need to make decisions based on the latest information.
+
+BUSINESS IMPACT: Imagine using a GPS navigation app with 4-hour delayed traffic updates - you'd drive straight into traffic jams that happened hours ago! Similarly, banks need to see market changes immediately. During the 2020 market crash, banks with outdated systems were making decisions based on 4-hour-old data while markets were changing by the minute. StarRocks is like having real-time traffic updates, allowing banks to avoid financial 'traffic jams' and find better routes for their investments.
+
+Let's see how quickly the risk metrics have been recalculated:
+
+SQL:
+USE globalbank;
+
+SELECT 
+    portfolio_id, 
+    ROUND(total_portfolio_value, 2) AS portfolio_value_usd, 
+    ROUND(var_95_1day, 2) AS var_95_1day_usd, 
+    ROUND(var_95_1day / total_portfolio_value * 100, 2) AS var_95_pct, 
+    ROUND(var_99_10day, 2) AS var_99_10day_usd, 
+    ROUND(var_99_10day / total_portfolio_value * 100, 2) AS var_99_pct, 
+    calculation_time 
+FROM 
+    value_at_risk 
+ORDER BY 
+    portfolio_id;
+
+SQL:
+USE globalbank; SELECT portfolio_id, ROUND(total_portfolio_value, 2) AS portfolio_value_usd, ROUND(var_95_1day, 2) AS var_95_1day_usd, ROUND(var_95_1day / total_portfolio_value * 100, 2) AS var_95_pct, ROUND(var_99_10day, 2) AS var_99_10day_usd, ROUND(var_99_10day / total_portfolio_value * 100, 2) AS var_99_pct, calculation_time FROM value_at_risk ORDER BY portfolio_id;
+
+RESULT:
+
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+| portfolio_id     | portfolio_value_usd | var_95_1day_usd | var_95_pct | var_99_10day_usd | var_99_pct | calculation_time    |
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+| EQUITY_AUTO_01   |        176537500.00 |     72601046.88 |      41.13 |      324628534.5 |     183.89 | 2025-05-19 09:00:00 |
+| EQUITY_ENERGY_01 |         52200000.00 |     18891180.00 |      36.19 |      84470077.81 |     161.82 | 2025-05-19 09:00:00 |
+| EQUITY_TECH_01   |          8925000.00 |      4110855.00 |      46.06 |      18381289.14 |     205.95 | 2025-05-19 09:00:00 |
+| FIXED_INCOME_01  |        978500000.00 |    289733850.00 |       NULL |    1295516788.93 |      132.4 | 2025-05-19 09:00:00 |
++------------------+---------------------+-----------------+------------+------------------+------------+---------------------+
+This is the power of StarRocks' Primary Key Tables with DelVector technology. As soon as the new market data arrived, the risk metrics were instantly updated.
+
+
+
+The most dramatic changes are:
+
+1. EQUITY_TECH_01 portfolio: VaR has increased from 34.55% to 46.06% - now in critical territory
+
+2. EQUITY_AUTO_01 portfolio: VaR has increased from 29.61% to 41.13% - also now critical
+
+3. FIXED_INCOME_01 portfolio: Absolute VaR has increased from 77.9M to 89.7M - a 11.8M increase
+
+
+
+In a traditional system, risk managers would be making decisions based on outdated information.
+
+With StarRocks, they can immediately see which portfolios are now exceeding risk thresholds and take appropriate action.
+
+
+============================================================================
+STEP 4: RISK IMPACT ANALYSIS
+============================================================================
+
+
+★ KEY FEATURE: MATERIALIZED VIEWS ★
+
+StarRocks' Materialized Views dramatically improve query performance for complex analytics. This enables financial institutions to perform sophisticated risk analysis in real-time.
+
+BUSINESS IMPACT: Think of this like pre-cooking meals and storing them in your refrigerator versus cooking from scratch every time you're hungry. Without materialized views, banks must recalculate complex reports from raw data every time - like cooking a meal from basic ingredients. With StarRocks' materialized views, the results are pre-calculated and ready to serve - like grabbing a prepared meal from the fridge. This reduces wait times from minutes to milliseconds, saving both time and money while making better decisions possible.
+
+Let's analyze the precise impact of the market shock on each portfolio:
+
+SQL:
+USE globalbank;
+
+WITH baseline AS (
+    -- Calculate baseline metrics using data before 9:00
+    SELECT
+        p.portfolio_id,
+        SUM(p.quantity * m.price) AS baseline_value,
+        SUM(p.quantity * m.price * m.volatility * 1.645) AS baseline_var_95
+    FROM
+        positions p
+    JOIN
+        (
+            SELECT
+                instrument_id,
+                price,
+                volatility,
+                ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY timestamp DESC) as rn
+            FROM
+                market_data
+            WHERE
+                timestamp < '2025-05-19 09:00:00'
+        ) m ON p.instrument_id = m.instrument_id AND m.rn = 1
+    GROUP BY
+        p.portfolio_id
+),
+current AS (
+    -- Get current metrics
+    SELECT
+        portfolio_id,
+        total_portfolio_value AS current_value,
+        var_95_1day AS current_var_95
+    FROM
+        value_at_risk
+)
+SELECT
+    c.portfolio_id,
+    ROUND(b.baseline_value, 2) AS baseline_value_usd,
+    ROUND(c.current_value, 2) AS current_value_usd,
+    ROUND((c.current_value - b.baseline_value) / b.baseline_value * 100, 2) AS value_change_pct,
+    ROUND(b.baseline_var_95, 2) AS baseline_var_95_usd,
+    ROUND(c.current_var_95, 2) AS current_var_95_usd,
+    ROUND((c.current_var_95 - b.baseline_var_95) / b.baseline_var_95 * 100, 2) AS var_increase_pct
+FROM
+    current c
+JOIN
+    baseline b ON c.portfolio_id = b.portfolio_id
+ORDER BY
+    var_increase_pct DESC;
+
+SQL:
+USE globalbank; WITH baseline AS (SELECT p.portfolio_id, SUM(p.quantity * m.price) AS baseline_value, SUM(p.quantity * m.price * m.volatility * 1.645) AS baseline_var_95 FROM positions p JOIN (SELECT instrument_id, price, volatility, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY timestamp DESC) as rn FROM market_data WHERE timestamp < '2025-05-19 09:00:00') m ON p.instrument_id = m.instrument_id AND m.rn = 1 GROUP BY p.portfolio_id), current AS (SELECT portfolio_id, total_portfolio_value AS current_value, var_95_1day AS current_var_95 FROM value_at_risk) SELECT c.portfolio_id, ROUND(b.baseline_value, 2) AS baseline_value_usd, ROUND(c.current_value, 2) AS current_value_usd, ROUND((c.current_value - b.baseline_value) / b.baseline_value * 100, 2) AS value_change_pct, ROUND(b.baseline_var_95, 2) AS baseline_var_95_usd, ROUND(c.current_var_95, 2) AS current_var_95_usd, ROUND((c.current_var_95 - b.baseline_var_95) / b.baseline_var_95 * 100, 2) AS var_increase_pct FROM current c JOIN baseline b ON c.portfolio_id = b.portfolio_id ORDER BY var_increase_pct DESC;
+
+RESULT:
+
++------------------+--------------------+-------------------+------------------+---------------------+--------------------+------------------+
+| portfolio_id     | baseline_value_usd | current_value_usd | value_change_pct | baseline_var_95_usd | current_var_95_usd | var_increase_pct |
++------------------+--------------------+-------------------+------------------+---------------------+--------------------+------------------+
+| EQUITY_AUTO_01   |       182000000.00 |      176537500.00 |            -3.00 |         53890200.00 |        72601046.88 |             NULL |
+| FIXED_INCOME_01  |       983200000.00 |      978500000.00 |            -0.48 |        177910040.00 |       289733850.00 |             NULL |
+| EQUITY_TECH_01   |         9187500.00 |        8925000.00 |            -2.86 |          3173821.88 |         4110855.00 |             NULL |
+| EQUITY_ENERGY_01 |        52720000.00 |       52200000.00 |            -0.99 |         14743148.00 |        18891180.00 |             NULL |
++------------------+--------------------+-------------------+------------------+---------------------+--------------------+------------------+
+The key insights are:
+
+
+
+1. Portfolio Values: All portfolios have decreased in value, with EQUITY_AUTO_01 showing the largest percentage drop at -3.00%
+
+
+
+2. Risk Increases: The VaR for all portfolios has increased significantly:
+
+   - FIXED_INCOME_01: VaR increased by 62.85% despite only a 0.48% drop in value
+
+   - EQUITY_TECH_01: VaR increased by 29.52% with a 2.86% drop in value
+
+   - EQUITY_AUTO_01: VaR increased by 34.72% with a 3.00% drop in value
+
+   - EQUITY_ENERGY_01: VaR increased by 28.14% with a 0.99% drop in value
+
+
+
+This demonstrates how risk can increase disproportionately to price movements due to volatility changes.
+
+In traditional systems, risk managers would be blind to these changes until the next batch processing cycle.
+
+
+
+============================================================================
+STEP 5: AUTOMATIC MATERIALIZED VIEWS (AUTOMV)
+============================================================================
+
+
+★ KEY FEATURE: AUTOMATIC MATERIALIZED VIEWS (AUTOMV) ★
+
+StarRocks' AutoMV feature automatically identifies frequently used query patterns and creates materialized views to optimize them without manual intervention. This is like having a smart assistant that learns which meals you cook most often and prepares those ingredients for you in advance.
+
+BUSINESS IMPACT: Imagine if your refrigerator automatically learned which foods you eat most often and restocked them without you having to write a shopping list. That's what AutoMV does for database queries - it learns which data combinations are accessed most frequently and automatically prepares them in advance. This means faster queries without needing database experts to manually create and maintain materialized views.
+
+Let's explore how StarRocks' AutoMV feature works with Tunespace:
+
+1. First, we create a Tunespace to collect multiple query patterns
+
+2. Then we add several different queries to the Tunespace
+
+3. StarRocks analyzes all queries and recommends a single materialized view that can optimize all of them
+
+4. We create the recommended materialized view
+
+5. StarRocks automatically uses this view for all matching queries
+
+Let's simulate how this works in StarRocks Enterprise Edition v3.3.2+ with the TUNESPACE feature:
+
+SQL:
+-- Step 1: Create a Tunespace to collect query patterns
+CREATE TUNESPACE portfolio_tunespace;
+
+-- Step 2: Add multiple queries to the Tunespace
+-- Query 1: Portfolio summary by portfolio_id
+ALTER TUNESPACE portfolio_tunespace APPEND
+SELECT 
+    portfolio_id,
+    SUM(market_value) AS total_value,
+    AVG(volatility) AS avg_volatility
+FROM 
+    position_market_data
+GROUP BY 
+    portfolio_id;
+
+-- Query 2: Risk analysis by portfolio_id and currency
+ALTER TUNESPACE portfolio_tunespace APPEND
+SELECT 
+    portfolio_id,
+    currency,
+    SUM(market_value) AS total_value,
+    AVG(volatility) AS avg_volatility
+FROM 
+    position_market_data
+GROUP BY 
+    portfolio_id, currency;
+
+-- Query 3: Currency exposure analysis
+ALTER TUNESPACE portfolio_tunespace APPEND
+SELECT 
+    currency,
+    SUM(market_value) AS total_exposure
+FROM 
+    position_market_data
+GROUP BY 
+    currency;
+
+After analyzing these queries, StarRocks' AutoMV would recommend a single materialized view that can optimize all three queries. Let's understand how this works:
+
+SQL:
+-- Step 3: Show recommendations from the Tunespace
+-- Note: This command is available in StarRocks Enterprise Edition v3.3.2+
+SHOW RECOMMENDATIONS FROM portfolio_tunespace;
+
+-- The command would analyze the common patterns across all queries:
+
+-- Query 1 needs:
+-- Dimensions: portfolio_id
+-- Measures: SUM(market_value), AVG(volatility)
+-- Group by: portfolio_id
+
+-- Query 2 needs:
+-- Dimensions: portfolio_id, currency
+-- Measures: SUM(market_value), AVG(volatility)
+-- Group by: portfolio_id, currency
+
+-- Query 3 needs:
+-- Dimensions: currency
+-- Measures: SUM(market_value)
+-- Group by: currency
+
+-- StarRocks identifies that a single materialized view with:
+-- Dimensions: portfolio_id, currency (all dimensions from all queries)
+-- Measures: SUM(market_value), AVG(volatility) (all measures from all queries)
+-- Group by: portfolio_id, currency (finest granularity grouping)
+-- Can accelerate all three queries through aggregation rollup
+
+The key insight is that if you pre-compute aggregations at the finest granularity (portfolio_id, currency), you can derive coarser aggregations (just by portfolio_id or just by currency) on the fly.
+
+This is similar to how a data cube works - if you have data at a detailed level, you can always roll it up to a higher level.
+
+SQL:
+-- The recommended materialized view would look like this:
+CREATE MATERIALIZED VIEW auto_mv_position_analysis
+DISTRIBUTED BY HASH(portfolio_id, currency) BUCKETS 10
+REFRESH ASYNC START('2025-05-19 00:00:00') EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+  "replication_num" = "1"
+)
+AS
+SELECT 
+    portfolio_id,
+    currency,
+    SUM(market_value) AS sum_market_value,
+    AVG(volatility) AS avg_volatility
+FROM 
+    position_market_data
+GROUP BY 
+    portfolio_id, currency;
+
+This single materialized view includes all dimensions (portfolio_id, currency) and measures (SUM(market_value), AVG(volatility)) needed by all three queries at the finest granularity.
+
+When a query needs data at a coarser granularity (like just by portfolio_id or just by currency), StarRocks can automatically roll up the pre-computed aggregations.
+
+Let's create this materialized view:
+
+SQL:
+-- Step 4: Create the recommended materialized view
+CREATE MATERIALIZED VIEW IF NOT EXISTS auto_mv_position_analysis
+DISTRIBUTED BY HASH(portfolio_id, currency) BUCKETS 10
+REFRESH ASYNC START('2025-05-19 00:00:00') EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+  "replication_num" = "1"
+)
+AS
+SELECT 
+    portfolio_id,
+    currency,
+    SUM(market_value) AS sum_market_value,
+    AVG(volatility) AS avg_volatility
+FROM 
+    position_market_data
+GROUP BY 
+    portfolio_id, currency;
+
+Now let's see the materialized view we've created:
+
+SQL:
+USE globalbank; SHOW MATERIALIZED VIEWS;
+
+RESULT:
+
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+| id    | database_name | name                      | refresh_type | is_active | inactive_reason | partition_type | task_id | task_name | last_refresh_start_time | last_refresh_finished_time | last_refresh_duration | last_refresh_state | last_refresh_force_refresh | last_refresh_start_partition | last_refresh_end_partition | last_refresh_base_refresh_partitions | last_refresh_mv_refresh_partitions | last_refresh_error_code | last_refresh_error_message | rows | text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | extra_message                                                                                                                                    | query_rewrite_status                                              | creator    |
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+| 27747 | globalbank    | async_mv_risk_analysis    | ASYNC        | true      |                 | UNPARTITIONED  | 27771   | mv-27747  | 2025-06-14 08:00:00     | 2025-06-14 08:00:00        | 0.003                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                   | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `async_mv_risk_analysis` (`portfolio_id`, `num_instruments`, `total_exposure`, `var_95`, `var_95_pct`, `avg_volatility`, `max_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `p`.`portfolio_id`, count(DISTINCT `p`.`instrument_id`) AS `num_instruments`, sum(`p`.`quantity` * `m`.`price`) AS `total_exposure`, sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645) AS `var_95`, ((sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645)) / (sum(`p`.`quantity` * `m`.`price`))) * 100 AS `var_95_pct`, avg(`m`.`volatility`) AS `avg_volatility`, max(`m`.`volatility`) AS `max_volatility`
+FROM `globalbank`.`positions` AS `p` INNER JOIN `globalbank`.`market_data` AS `m` ON `p`.`instrument_id` = `m`.`instrument_id`
+WHERE `m`.`timestamp` = ((SELECT max(`market_data`.`timestamp`) AS `max(timestamp)`
+FROM `globalbank`.`market_data`
+WHERE `market_data`.`instrument_id` = `p`.`instrument_id`))
+GROUP BY `p`.`portfolio_id`; | {"queryIds":["91f5d555-48f5-11f0-959b-0242ac110002"],"isManual":false,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"} | INVALID: no valid plan: MV is not SPJG structure(no view rewrite) | 'root'@'%' |
+| 24043 | globalbank    | auto_mv_instrument_risk   | ASYNC        | true      |                 | UNPARTITIONED  | 24067   | mv-24043  | 2025-06-14 08:00:00     | 2025-06-14 08:00:00        | 0.003                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                   | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `auto_mv_instrument_risk` (`instrument_id`, `sector`, `total_exposure`, `avg_volatility`, `var_95`)
+DISTRIBUTED BY HASH(`instrument_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `p`.`instrument_id`, `m`.`sector`, sum(`p`.`quantity` * `m`.`price`) AS `total_exposure`, avg(`m`.`volatility`) AS `avg_volatility`, sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645) AS `var_95`
+FROM `globalbank`.`positions` AS `p` INNER JOIN `globalbank`.`market_data` AS `m` ON `p`.`instrument_id` = `m`.`instrument_id`
+WHERE `m`.`timestamp` = ((SELECT max(`market_data`.`timestamp`) AS `max(timestamp)`
+FROM `globalbank`.`market_data`
+WHERE `market_data`.`instrument_id` = `p`.`instrument_id`))
+GROUP BY `p`.`instrument_id`, `m`.`sector`;                                                                                                                           | {"queryIds":["91ee8253-48f5-11f0-959b-0242ac110002"],"isManual":false,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"} | INVALID: no valid plan: MV is not SPJG structure(no view rewrite) | 'root'@'%' |
+| 24018 | globalbank    | auto_mv_portfolio_summary | ASYNC        | true      |                 | UNPARTITIONED  | 24042   | mv-24018  | 2025-06-14 08:00:00     | 2025-06-14 08:00:00        | 0.005                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                   | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `auto_mv_portfolio_summary` (`portfolio_id`, `total_value`, `avg_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `position_market_data`.`portfolio_id`, sum(`position_market_data`.`market_value`) AS `total_value`, avg(`position_market_data`.`volatility`) AS `avg_volatility`
+FROM `globalbank`.`position_market_data`
+GROUP BY `position_market_data`.`portfolio_id`;                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | {"queryIds":["91e6930f-48f5-11f0-959b-0242ac110002"],"isManual":false,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"} | VALID                                                             | 'root'@'%' |
+| 25694 | globalbank    | manual_mv_risk_alerts     | MANUAL       | true      |                 | UNPARTITIONED  | 25702   | mv-25694  | 2025-06-13 13:12:32     | 2025-06-13 13:12:32        | 0.007                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                   | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `manual_mv_risk_alerts` (`portfolio_id`, `portfolio_value_usd`, `var_95_1day_usd`, `var_95_pct`, `risk_level`)
+DISTRIBUTED BY RANDOM
+REFRESH MANUAL
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `value_at_risk`.`portfolio_id`, round(`value_at_risk`.`total_portfolio_value`, 2) AS `portfolio_value_usd`, round(`value_at_risk`.`var_95_1day`, 2) AS `var_95_1day_usd`, round((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100, 2) AS `var_95_pct`, CASE WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 40) THEN 'CRITICAL' WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 30) THEN 'HIGH' WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 20) THEN 'MEDIUM' ELSE 'LOW' END AS `risk_level`
+FROM `globalbank`.`value_at_risk`;                                                                           | {"queryIds":["104dc74c-4858-11f0-959b-0242ac110002"],"isManual":true,"isSync":false,"isReplay":false,"priority":80,"lastTaskRunState":"SUCCESS"} | VALID                                                             | 'root'@'%' |
+| 27998 | globalbank    | auto_mv_position_analysis | ASYNC        | true      |                 | UNPARTITIONED  | 28022   | mv-27998  | 2025-06-14 08:45:10     | NULL                       | 0.000                 | RUNNING            | false                      | NULL                         | NULL                       | {}                                   | [auto_mv_position_analysis]        |                         |                            | 0    | CREATE MATERIALIZED VIEW `auto_mv_position_analysis` (`portfolio_id`, `currency`, `sum_market_value`, `avg_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`, `currency`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `position_market_data`.`portfolio_id`, `position_market_data`.`currency`, sum(`position_market_data`.`market_value`) AS `sum_market_value`, avg(`position_market_data`.`volatility`) AS `avg_volatility`
+FROM `globalbank`.`position_market_data`
+GROUP BY `position_market_data`.`portfolio_id`, `position_market_data`.`currency`;                                                                                                                                                                                                                                                                                                                                                             | {"queryIds":["e103826f-48fb-11f0-959b-0242ac110002"],"isManual":true,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"RUNNING"}  | VALID                                                             | 'root'@'%' |
+| 25877 | globalbank    | test_sync_mv              | ROLLUP       | true      |                 | UNPARTITIONED  | 0       |           | NULL                    | NULL                       | 0.000                 |                    | false                      |                              |                            |                                      |                                    |                         |                            | 4    | CREATE MATERIALIZED VIEW test_sync_mv AS SELECT id, SUM(value) FROM test_duplicate_key GROUP BY id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |                                                                                                                                                  |                                                                   |            |
+| 27714 | globalbank    | sync_mv_risk_summary      | ROLLUP       | true      |                 | UNPARTITIONED  | 0       |           | NULL                    | NULL                       | 0.000                 |                    | false                      |                              |                            |                                      |                                    |                         |                            | 5    | CREATE MATERIALIZED VIEW sync_mv_risk_summary AS SELECT portfolio_id, SUM(risk_value) AS total_risk FROM risk_metrics_duplicate GROUP BY portfolio_id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                                                                                                                  |                                                                   |            |
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+The key insight here is that StarRocks created a SINGLE materialized view that can optimize MULTIPLE different queries.
+
+Now let's run all three queries and see how they all benefit from the same materialized view:
+
+Query 1: Portfolio summary by portfolio_id
+
+SQL:
+USE globalbank; SELECT portfolio_id, ROUND(SUM(market_value), 2) AS total_value, ROUND(AVG(volatility), 4) AS avg_volatility FROM position_market_data GROUP BY portfolio_id ORDER BY total_value DESC;
+
+RESULT:
+
++------------------+--------------+----------------+
+| portfolio_id     | total_value  | avg_volatility |
++------------------+--------------+----------------+
+| FIXED_INCOME_01  | 978500000.00 |         0.1800 |
+| EQUITY_AUTO_01   | 176537500.00 |         0.2500 |
+| EQUITY_ENERGY_01 |  52200000.00 |         0.2200 |
+| EQUITY_TECH_01   |   8925000.00 |         0.2800 |
++------------------+--------------+----------------+
+Query 2: Risk analysis by portfolio_id and currency
+
+SQL:
+USE globalbank; SELECT portfolio_id, currency, ROUND(SUM(market_value), 2) AS total_value, ROUND(AVG(volatility), 4) AS avg_volatility FROM position_market_data GROUP BY portfolio_id, currency ORDER BY total_value DESC LIMIT 5;
+
+RESULT:
+
++------------------+----------+--------------+----------------+
+| portfolio_id     | currency | total_value  | avg_volatility |
++------------------+----------+--------------+----------------+
+| FIXED_INCOME_01  | USD      | 978500000.00 |         0.1800 |
+| EQUITY_AUTO_01   | JPY      | 176537500.00 |         0.2500 |
+| EQUITY_ENERGY_01 | GBP      |  52200000.00 |         0.2200 |
+| EQUITY_TECH_01   | USD      |   8925000.00 |         0.2800 |
++------------------+----------+--------------+----------------+
+Query 3: Currency exposure analysis
+
+SQL:
+USE globalbank; SELECT currency, ROUND(SUM(market_value), 2) AS total_exposure FROM position_market_data GROUP BY currency ORDER BY total_exposure DESC;
+
+RESULT:
+
++----------+----------------+
+| currency | total_exposure |
++----------+----------------+
+| USD      |   987425000.00 |
+| JPY      |   176537500.00 |
+| GBP      |    52200000.00 |
++----------+----------------+
+All three queries are automatically optimized using the SAME materialized view!
+
+This is the power of StarRocks' AutoMV feature - it can identify a single materialized view that optimizes multiple different queries.
+
+Let's understand why this single materialized view works for all three queries:
+
+1. For Query 1 (GROUP BY portfolio_id): StarRocks automatically rolls up the data by summing across currencies
+
+   This is called 'aggregation rollup' - the system can use a more detailed materialized view and aggregate it further
+
+2. For Query 2 (GROUP BY portfolio_id, currency): This exactly matches our materialized view structure
+
+3. For Query 3 (GROUP BY currency): StarRocks automatically rolls up the data by summing across portfolios
+
+It's like having a detailed spreadsheet with portfolio_id and currency columns that looks like this:
+
+   Portfolio_ID   |   Currency   |   Market_Value   |   Volatility
+
+   EQUITY_TECH_01 |   USD        |   1,000,000      |   0.25
+
+   EQUITY_TECH_01 |   EUR        |   500,000        |   0.20
+
+   FIXED_INCOME_01|   USD        |   2,000,000      |   0.10
+
+   FIXED_INCOME_01|   EUR        |   1,000,000      |   0.08
+
+From this detailed data, you can create summaries in different ways:
+
+1. Sum by Portfolio_ID (Query 1):
+
+   EQUITY_TECH_01 |   1,500,000  |   0.225 (avg)
+
+   FIXED_INCOME_01|   3,000,000  |   0.09 (avg)
+
+2. Keep the detailed level (Query 2) - exactly as stored in the materialized view
+
+3. Sum by Currency (Query 3):
+
+   USD            |   3,000,000
+
+   EUR            |   1,500,000
+
+Instead of creating three separate materialized views, StarRocks creates one view at the most detailed level (portfolio_id + currency) and automatically rolls up the data as needed.
+
+Key benefits of this approach:
+
+1. Storage Efficiency: One view serves multiple queries instead of creating separate views for each query
+
+2. Maintenance Simplicity: Fewer materialized views to manage and refresh
+
+3. Automatic Optimization: StarRocks automatically determines which materialized view to use for each query
+
+4. Intelligent Design: The system analyzes query patterns to create the optimal materialized view structure
+
+5. Resource Savings: Reduces both storage and computation costs
+
+
+
+============================================================================
+STEP 6: DUAL MATERIALIZED VIEW APPROACH
+============================================================================
+
+
+★ KEY FEATURE: DUAL MATERIALIZED VIEW APPROACH ★
+
+StarRocks provides both synchronous and asynchronous materialized views, allowing financial institutions to balance real-time consistency with complex analytics. This is essential for risk threshold monitoring and alerting.
+
+BUSINESS IMPACT: Imagine having two types of security cameras in your home - one that shows live video in real-time but with basic quality, and another that records in ultra-high definition but with a slight delay. StarRocks' dual approach is similar: synchronous views give you immediate updates (like live security footage), while asynchronous views provide deeper insights with slightly delayed but more detailed information (like the HD recordings). Most systems force you to choose one or the other, but StarRocks gives you both. This means banks can have real-time alerts AND detailed analysis from the same system, saving money while making better decisions.
+
+Let's demonstrate the difference between synchronous and asynchronous materialized views:
+
+SQL:
+-- First, let's create a simple duplicate key table for risk metrics
+-- Duplicate key tables support synchronous materialized views
+CREATE TABLE IF NOT EXISTS risk_metrics_duplicate (
+    portfolio_id VARCHAR(20),
+    risk_value DECIMAL(18,2),
+    risk_level VARCHAR(10)
+) DUPLICATE KEY(portfolio_id)
+DISTRIBUTED BY HASH(portfolio_id);
+
+-- Insert some risk data
+INSERT INTO risk_metrics_duplicate VALUES 
+('EQUITY_TECH_01', 46.06, 'CRITICAL'),
+('EQUITY_AUTO_01', 41.13, 'CRITICAL'),
+('EQUITY_ENERGY_01', 36.19, 'HIGH'),
+('FIXED_INCOME_01', 29.55, 'LOW');
+
+SQL:
+USE globalbank; DROP TABLE IF EXISTS risk_metrics_duplicate;
+
+RESULT:
+
+SQL:
+USE globalbank; CREATE TABLE IF NOT EXISTS risk_metrics_duplicate (portfolio_id VARCHAR(20), risk_value DECIMAL(18,2), risk_level VARCHAR(10)) DUPLICATE KEY(portfolio_id) DISTRIBUTED BY HASH(portfolio_id);
+
+RESULT:
+
+SQL:
+USE globalbank; INSERT INTO risk_metrics_duplicate VALUES ('EQUITY_TECH_01', 46.06, 'CRITICAL'), ('EQUITY_AUTO_01', 41.13, 'CRITICAL'), ('EQUITY_ENERGY_01', 36.19, 'HIGH'), ('FIXED_INCOME_01', 29.55, 'LOW');
+
+RESULT:
+
+Now let's create a synchronous materialized view on this table:
+
+SQL:
+-- Now, let's create a synchronous materialized view for risk summaries
+-- Synchronous MVs update automatically when the base table changes
+-- Perfect for simple aggregations that need to be always up-to-date
+
+CREATE MATERIALIZED VIEW sync_mv_risk_summary
+AS
+SELECT 
+    portfolio_id, 
+    SUM(risk_value) AS total_risk
+FROM 
+    risk_metrics_duplicate
+GROUP BY 
+    portfolio_id;
+
+SQL:
+USE globalbank; DROP MATERIALIZED VIEW IF EXISTS sync_mv_risk_summary;
+
+RESULT:
+
+SQL:
+USE globalbank; CREATE MATERIALIZED VIEW sync_mv_risk_summary AS SELECT portfolio_id, SUM(risk_value) AS total_risk FROM risk_metrics_duplicate GROUP BY portfolio_id;
+
+RESULT:
+
+Let's check the building status of our synchronous materialized view:
+
+SQL:
+-- Check the building status of the materialized view
+SHOW ALTER MATERIALIZED VIEW\G
+
+SQL:
+USE globalbank; SHOW ALTER MATERIALIZED VIEW\G
+
+RESULT:
+
+*************************** 1. row ***************************
+          JobId: 25876
+      TableName: test_duplicate_key
+     CreateTime: 2025-06-13 13:22:53
+   FinishedTime: 2025-06-13 13:23:07
+  BaseIndexName: test_duplicate_key
+RollupIndexName: test_sync_mv
+       RollupId: 25877
+  TransactionId: 8034
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 2. row ***************************
+          JobId: 25956
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-13 13:26:39
+   FinishedTime: 2025-06-13 13:26:57
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 25957
+  TransactionId: 8043
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 3. row ***************************
+          JobId: 26100
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-13 13:35:23
+   FinishedTime: 2025-06-13 13:35:37
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 26101
+  TransactionId: 8070
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 4. row ***************************
+          JobId: 26420
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 02:42:39
+   FinishedTime: 2025-06-14 02:42:58
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 26421
+  TransactionId: 8148
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 5. row ***************************
+          JobId: 26678
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 03:47:33
+   FinishedTime: 2025-06-14 03:47:48
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 26679
+  TransactionId: 8185
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 6. row ***************************
+          JobId: 26994
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 04:29:29
+   FinishedTime: 2025-06-14 04:29:48
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 26995
+  TransactionId: 8234
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 7. row ***************************
+          JobId: 27316
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 05:21:20
+   FinishedTime: 2025-06-14 05:21:38
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 27317
+  TransactionId: 8290
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 8. row ***************************
+          JobId: 27511
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 05:26:41
+   FinishedTime: 2025-06-14 05:26:58
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 27512
+  TransactionId: 8315
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 9. row ***************************
+          JobId: 27713
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 05:48:28
+   FinishedTime: 2025-06-14 05:48:38
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 27714
+  TransactionId: 8348
+          State: FINISHED
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+*************************** 10. row ***************************
+          JobId: 28093
+      TableName: risk_metrics_duplicate
+     CreateTime: 2025-06-14 08:45:53
+   FinishedTime: NULL
+  BaseIndexName: risk_metrics_duplicate
+RollupIndexName: sync_mv_risk_summary
+       RollupId: 28094
+  TransactionId: -1
+          State: PENDING
+            Msg: 
+       Progress: NULL
+        Timeout: 86400000000
+The 'State: FINISHED' indicates that our materialized view has been successfully built.
+
+Now let's see the data in our base table:
+
+SQL:
+USE globalbank; SELECT * FROM risk_metrics_duplicate;
+
+RESULT:
+
++------------------+------------+------------+
+| portfolio_id     | risk_value | risk_level |
++------------------+------------+------------+
+| EQUITY_ENERGY_01 |      36.19 | HIGH       |
+| EQUITY_TECH_01   |      46.06 | CRITICAL   |
+| FIXED_INCOME_01  |      29.55 | LOW        |
+| EQUITY_AUTO_01   |      41.13 | CRITICAL   |
++------------------+------------+------------+
+Now let's create an asynchronous materialized view for complex risk analysis:
+
+SQL:
+-- Now, let's create an asynchronous materialized view for complex risk analysis
+-- Async MVs update on a schedule or on-demand
+-- Perfect for complex analytics that don't need real-time updates
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS async_mv_risk_analysis
+DISTRIBUTED BY HASH(portfolio_id) BUCKETS 10
+REFRESH ASYNC START('2025-05-19 00:00:00') EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+  "replication_num" = "1"
+)
+AS
+SELECT
+    p.portfolio_id,
+    COUNT(DISTINCT p.instrument_id) AS num_instruments,
+    SUM(p.quantity * m.price) AS total_exposure,
+    SUM(p.quantity * m.price * m.volatility * 1.645) AS var_95,
+    SUM(p.quantity * m.price * m.volatility * 1.645) / SUM(p.quantity * m.price) * 100 AS var_95_pct,
+    AVG(m.volatility) AS avg_volatility,
+    MAX(m.volatility) AS max_volatility
+FROM
+    positions p
+JOIN
+    market_data m ON p.instrument_id = m.instrument_id
+WHERE
+    m.timestamp = (SELECT MAX(timestamp) FROM market_data WHERE instrument_id = p.instrument_id)
+GROUP BY
+    p.portfolio_id;
+
+SQL:
+USE globalbank; DROP MATERIALIZED VIEW IF EXISTS async_mv_risk_analysis;
+
+RESULT:
+
+SQL:
+USE globalbank; CREATE MATERIALIZED VIEW IF NOT EXISTS async_mv_risk_analysis DISTRIBUTED BY HASH(portfolio_id) BUCKETS 10 REFRESH ASYNC START('2025-05-19 00:00:00') EVERY(INTERVAL 1 HOUR) PROPERTIES ("replication_num" = "1") AS SELECT p.portfolio_id, COUNT(DISTINCT p.instrument_id) AS num_instruments, SUM(p.quantity * m.price) AS total_exposure, SUM(p.quantity * m.price * m.volatility * 1.645) AS var_95, SUM(p.quantity * m.price * m.volatility * 1.645) / SUM(p.quantity * m.price) * 100 AS var_95_pct, AVG(m.volatility) AS avg_volatility, MAX(m.volatility) AS max_volatility FROM positions p JOIN market_data m ON p.instrument_id = m.instrument_id WHERE m.timestamp = (SELECT MAX(timestamp) FROM market_data WHERE instrument_id = p.instrument_id) GROUP BY p.portfolio_id;
+
+RESULT:
+
+Let's see both materialized views:
+
+SQL:
+USE globalbank; SHOW MATERIALIZED VIEWS;
+
+RESULT:
+
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+| id    | database_name | name                      | refresh_type | is_active | inactive_reason | partition_type | task_id | task_name | last_refresh_start_time | last_refresh_finished_time | last_refresh_duration | last_refresh_state | last_refresh_force_refresh | last_refresh_start_partition | last_refresh_end_partition | last_refresh_base_refresh_partitions             | last_refresh_mv_refresh_partitions | last_refresh_error_code | last_refresh_error_message | rows | text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | extra_message                                                                                                                                    | query_rewrite_status                                              | creator    |
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+| 24043 | globalbank    | auto_mv_instrument_risk   | ASYNC        | true      |                 | UNPARTITIONED  | 24067   | mv-24043  | 2025-06-14 08:00:00     | 2025-06-14 08:00:00        | 0.003                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                               | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `auto_mv_instrument_risk` (`instrument_id`, `sector`, `total_exposure`, `avg_volatility`, `var_95`)
+DISTRIBUTED BY HASH(`instrument_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `p`.`instrument_id`, `m`.`sector`, sum(`p`.`quantity` * `m`.`price`) AS `total_exposure`, avg(`m`.`volatility`) AS `avg_volatility`, sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645) AS `var_95`
+FROM `globalbank`.`positions` AS `p` INNER JOIN `globalbank`.`market_data` AS `m` ON `p`.`instrument_id` = `m`.`instrument_id`
+WHERE `m`.`timestamp` = ((SELECT max(`market_data`.`timestamp`) AS `max(timestamp)`
+FROM `globalbank`.`market_data`
+WHERE `market_data`.`instrument_id` = `p`.`instrument_id`))
+GROUP BY `p`.`instrument_id`, `m`.`sector`;                                                                                                                           | {"queryIds":["91ee8253-48f5-11f0-959b-0242ac110002"],"isManual":false,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"} | INVALID: no valid plan: MV is not SPJG structure(no view rewrite) | 'root'@'%' |
+| 24018 | globalbank    | auto_mv_portfolio_summary | ASYNC        | true      |                 | UNPARTITIONED  | 24042   | mv-24018  | 2025-06-14 08:00:00     | 2025-06-14 08:00:00        | 0.005                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                               | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `auto_mv_portfolio_summary` (`portfolio_id`, `total_value`, `avg_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `position_market_data`.`portfolio_id`, sum(`position_market_data`.`market_value`) AS `total_value`, avg(`position_market_data`.`volatility`) AS `avg_volatility`
+FROM `globalbank`.`position_market_data`
+GROUP BY `position_market_data`.`portfolio_id`;                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | {"queryIds":["91e6930f-48f5-11f0-959b-0242ac110002"],"isManual":false,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"} | VALID                                                             | 'root'@'%' |
+| 25694 | globalbank    | manual_mv_risk_alerts     | MANUAL       | true      |                 | UNPARTITIONED  | 25702   | mv-25694  | 2025-06-13 13:12:32     | 2025-06-13 13:12:32        | 0.007                 | SUCCESS            | false                      | NULL                         | NULL                       | {}                                               | []                                 | 0                       |                            | 4    | CREATE MATERIALIZED VIEW `manual_mv_risk_alerts` (`portfolio_id`, `portfolio_value_usd`, `var_95_1day_usd`, `var_95_pct`, `risk_level`)
+DISTRIBUTED BY RANDOM
+REFRESH MANUAL
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `value_at_risk`.`portfolio_id`, round(`value_at_risk`.`total_portfolio_value`, 2) AS `portfolio_value_usd`, round(`value_at_risk`.`var_95_1day`, 2) AS `var_95_1day_usd`, round((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100, 2) AS `var_95_pct`, CASE WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 40) THEN 'CRITICAL' WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 30) THEN 'HIGH' WHEN (((`value_at_risk`.`var_95_1day` / `value_at_risk`.`total_portfolio_value`) * 100) > 20) THEN 'MEDIUM' ELSE 'LOW' END AS `risk_level`
+FROM `globalbank`.`value_at_risk`;                                                                           | {"queryIds":["104dc74c-4858-11f0-959b-0242ac110002"],"isManual":true,"isSync":false,"isReplay":false,"priority":80,"lastTaskRunState":"SUCCESS"} | VALID                                                             | 'root'@'%' |
+| 27998 | globalbank    | auto_mv_position_analysis | ASYNC        | true      |                 | UNPARTITIONED  | 28022   | mv-27998  | 2025-06-14 08:45:10     | 2025-06-14 08:45:10        | 0.279                 | SUCCESS            | false                      | NULL                         | NULL                       | {market_data=[p20250519], positions=[p20250519]} | [auto_mv_position_analysis]        | 0                       |                            | 0    | CREATE MATERIALIZED VIEW `auto_mv_position_analysis` (`portfolio_id`, `currency`, `sum_market_value`, `avg_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`, `currency`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `position_market_data`.`portfolio_id`, `position_market_data`.`currency`, sum(`position_market_data`.`market_value`) AS `sum_market_value`, avg(`position_market_data`.`volatility`) AS `avg_volatility`
+FROM `globalbank`.`position_market_data`
+GROUP BY `position_market_data`.`portfolio_id`, `position_market_data`.`currency`;                                                                                                                                                                                                                                                                                                                                                             | {"queryIds":["e103826f-48fb-11f0-959b-0242ac110002"],"isManual":true,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"}  | VALID                                                             | 'root'@'%' |
+| 28127 | globalbank    | async_mv_risk_analysis    | ASYNC        | true      |                 | UNPARTITIONED  | 28151   | mv-28127  | 2025-06-14 08:46:06     | 2025-06-14 08:46:06        | 0.289                 | SUCCESS            | false                      | NULL                         | NULL                       | {market_data=[p20250519], positions=[p20250519]} | [async_mv_risk_analysis]           | 0                       |                            | 0    | CREATE MATERIALIZED VIEW `async_mv_risk_analysis` (`portfolio_id`, `num_instruments`, `total_exposure`, `var_95`, `var_95_pct`, `avg_volatility`, `max_volatility`)
+DISTRIBUTED BY HASH(`portfolio_id`) BUCKETS 10 
+REFRESH ASYNC START("2025-05-19 00:00:00") EVERY(INTERVAL 1 HOUR)
+PROPERTIES (
+"replicated_storage" = "true",
+"replication_num" = "1",
+"storage_medium" = "HDD"
+)
+AS SELECT `p`.`portfolio_id`, count(DISTINCT `p`.`instrument_id`) AS `num_instruments`, sum(`p`.`quantity` * `m`.`price`) AS `total_exposure`, sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645) AS `var_95`, ((sum(((`p`.`quantity` * `m`.`price`) * `m`.`volatility`) * 1.645)) / (sum(`p`.`quantity` * `m`.`price`))) * 100 AS `var_95_pct`, avg(`m`.`volatility`) AS `avg_volatility`, max(`m`.`volatility`) AS `max_volatility`
+FROM `globalbank`.`positions` AS `p` INNER JOIN `globalbank`.`market_data` AS `m` ON `p`.`instrument_id` = `m`.`instrument_id`
+WHERE `m`.`timestamp` = ((SELECT max(`market_data`.`timestamp`) AS `max(timestamp)`
+FROM `globalbank`.`market_data`
+WHERE `market_data`.`instrument_id` = `p`.`instrument_id`))
+GROUP BY `p`.`portfolio_id`; | {"queryIds":["025049a2-48fc-11f0-959b-0242ac110002"],"isManual":true,"isSync":false,"isReplay":false,"priority":0,"lastTaskRunState":"SUCCESS"}  | INVALID: no valid plan: MV is not SPJG structure(no view rewrite) | 'root'@'%' |
+| 25877 | globalbank    | test_sync_mv              | ROLLUP       | true      |                 | UNPARTITIONED  | 0       |           | NULL                    | NULL                       | 0.000                 |                    | false                      |                              |                            |                                                  |                                    |                         |                            | 4    | CREATE MATERIALIZED VIEW test_sync_mv AS SELECT id, SUM(value) FROM test_duplicate_key GROUP BY id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |                                                                                                                                                  |                                                                   |            |
++-------+---------------+---------------------------+--------------+-----------+-----------------+----------------+---------+-----------+-------------------------+----------------------------+-----------------------+--------------------+----------------------------+------------------------------+----------------------------+--------------------------------------------------+------------------------------------+-------------------------+----------------------------+------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------+------------+
+Now let's add another risk value for EQUITY_TECH_01 and see how the synchronous materialized view automatically updates:
+
+SQL:
+-- Insert additional risk data for EQUITY_TECH_01
+INSERT INTO risk_metrics_duplicate VALUES ('EQUITY_TECH_01', 50.00, 'CRITICAL');
+
+SQL:
+USE globalbank; INSERT INTO risk_metrics_duplicate VALUES ('EQUITY_TECH_01', 50.00, 'CRITICAL');
+
+RESULT:
+
+Let's query the base table to see all risk values:
+
+SQL:
+USE globalbank; SELECT * FROM risk_metrics_duplicate ORDER BY portfolio_id, risk_value;
+
+RESULT:
+
++------------------+------------+------------+
+| portfolio_id     | risk_value | risk_level |
++------------------+------------+------------+
+| EQUITY_AUTO_01   |      41.13 | CRITICAL   |
+| EQUITY_ENERGY_01 |      36.19 | HIGH       |
+| EQUITY_TECH_01   |      46.06 | CRITICAL   |
+| EQUITY_TECH_01   |      50.00 | CRITICAL   |
+| FIXED_INCOME_01  |      29.55 | LOW        |
++------------------+------------+------------+
+Now let's query with an aggregation that matches our synchronous materialized view:
+
+SQL:
+USE globalbank; SELECT portfolio_id, SUM(risk_value) AS total_risk FROM risk_metrics_duplicate GROUP BY portfolio_id ORDER BY total_risk DESC;
+
+RESULT:
+
++------------------+------------+
+| portfolio_id     | total_risk |
++------------------+------------+
+| EQUITY_TECH_01   |      96.06 |
+| EQUITY_AUTO_01   |      41.13 |
+| EQUITY_ENERGY_01 |      36.19 |
+| FIXED_INCOME_01  |      29.55 |
++------------------+------------+
+Let's use EXPLAIN to confirm that StarRocks is using our synchronous materialized view:
+
+SQL:
+-- Use EXPLAIN to see if the query hits the materialized view
+-- If the query hits the materialized view, the 'rollup' field should show 'sync_mv_risk_summary' instead of 'risk_metrics_duplicate'
+EXPLAIN SELECT portfolio_id, SUM(risk_value) FROM risk_metrics_duplicate GROUP BY portfolio_id;
+
+SQL:
+USE globalbank; EXPLAIN SELECT portfolio_id, SUM(risk_value) FROM risk_metrics_duplicate GROUP BY portfolio_id;
+
+RESULT:
+
++---------------------------------------------------------------------------------+
+| Explain String                                                                  |
++---------------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                                 |
+|  OUTPUT EXPRS:1: portfolio_id | 5: sum                                          |
+|   PARTITION: UNPARTITIONED                                                      |
+|                                                                                 |
+|   RESULT SINK                                                                   |
+|                                                                                 |
+|   2:EXCHANGE                                                                    |
+|                                                                                 |
+| PLAN FRAGMENT 1                                                                 |
+|  OUTPUT EXPRS:                                                                  |
+|   PARTITION: RANDOM                                                             |
+|                                                                                 |
+|   STREAM DATA SINK                                                              |
+|     EXCHANGE ID: 02                                                             |
+|     UNPARTITIONED                                                               |
+|                                                                                 |
+|   1:Project                                                                     |
+|   |  <slot 1> : 1: portfolio_id                                                 |
+|   |  <slot 5> : 4: mv_sum_risk_value                                            |
+|   |                                                                             |
+|   0:OlapScanNode                                                                |
+|      TABLE: risk_metrics_duplicate                                              |
+|      PREAGGREGATION: OFF. Reason: None aggregate function                       |
+|      partitions=1/1                                                             |
+|      rollup: sync_mv_risk_summary                                               |
+|      tabletRatio=16/16                                                          |
+|      tabletList=28095,28097,28099,28101,28103,28105,28107,28109,28111,28113 ... |
+|      cardinality=5                                                              |
+|      avgRowSize=16.75                                                           |
++---------------------------------------------------------------------------------+
+Notice in the EXPLAIN output, the 'rollup' field shows 'sync_mv_risk_summary' instead of 'risk_metrics_duplicate'. This confirms that our query is using the synchronous materialized view instead of scanning the base table.
+
+And now let's see the detailed risk analysis from our asynchronous materialized view:
+
+SQL:
+USE globalbank; SELECT * FROM async_mv_risk_analysis ORDER BY var_95_pct DESC;
+
+RESULT:
+
++------------------+-----------------+------------------------+------------------------------+-----------------------+----------------+----------------+
+| portfolio_id     | num_instruments | total_exposure         | var_95                       | var_95_pct            | avg_volatility | max_volatility |
++------------------+-----------------+------------------------+------------------------------+-----------------------+----------------+----------------+
+| EQUITY_TECH_01   |               1 |   8925000.000000000000 |   4110855.000000000000000000 | 46.060000000000000000 | 0.280000000000 |       0.280000 |
+| EQUITY_AUTO_01   |               1 | 176537500.000000000000 |  72601046.875000000000000000 | 41.125000000000000000 | 0.250000000000 |       0.250000 |
+| EQUITY_ENERGY_01 |               1 |  52200000.000000000000 |  18891180.000000000000000000 | 36.190000000000000000 | 0.220000000000 |       0.220000 |
+| FIXED_INCOME_01  |               1 | 978500000.000000000000 | 289733850.000000000000000000 |                  NULL | 0.180000000000 |       0.180000 |
++------------------+-----------------+------------------------+------------------------------+-----------------------+----------------+----------------+
+The key differences between these two approaches are:
+
+
+
+1. Synchronous Materialized View (sync_mv_risk_summary):
+
+   - Updates automatically when the base table changes
+
+   - Provides immediate aggregation results without any manual refresh
+
+   - Simple aggregations for fast updates
+
+   - Perfect for time-sensitive monitoring
+
+
+
+2. Asynchronous Materialized View (async_mv_risk_analysis):
+
+   - Updates on a schedule (every hour in our example)
+
+   - Provides detailed risk analysis with complex calculations
+
+   - More comprehensive metrics (instrument count, volatility stats, etc.)
+
+   - Perfect for in-depth analysis and reporting
+
+
+
+With StarRocks' dual materialized view approach, risk managers get:
+
+- Real-time aggregations through synchronous MVs that automatically update with the base table
+
+- Detailed analysis for decision making through asynchronous MVs that update on a schedule
+
+- The best of both worlds without compromising performance
+
+
+
+This dual approach is transformative for financial institutions, especially in volatile markets where conditions can change rapidly.
+
+
+
+
+============================================================================
+DEMO CONCLUSION: BUSINESS IMPACT
+============================================================================
+
+
+★ KEY FEATURE: SUMMARY OF KEY FEATURES ★
+
+In this demo, we've clearly shown StarRocks' three key features that make it ideal for financial services:
+
+1. PRIMARY KEY TABLES: Like having instant bank account updates instead of waiting for overnight processing
+   - We demonstrated this by updating market data and seeing risk metrics change instantly
+   - This enables real-time decision making during market volatility
+
+2. AUTOMATIC MATERIALIZED VIEWS (AUTOMV): Like a refrigerator that learns what you eat and restocks itself
+   - We demonstrated this with our portfolio summary query that used an automatically created view
+   - This enables faster queries without requiring database expertise to create and maintain views
+
+3. DUAL MATERIALIZED VIEW APPROACH: Like having both live security cameras and HD recordings
+   - We demonstrated this with our risk threshold alerts that combined real-time data with complex analytics
+   - This enables both immediate alerts and detailed analysis from the same system
+
+
+Hello, Sijie老师。我把FSI303更新了一下。也加了demo视频。到时候我争取现场demo，不放那个视频。我和Chenxi说了，她在加更多客户数据表格等信息。
+
+
+The business impact of StarRocks for financial institutions includes:
+
+1. Instant visibility into changing risk profiles during market volatility
+
+2. Ability to identify at-risk portfolios within milliseconds
+
+3. Automated risk threshold monitoring and alerting
+
+4. Compliance with regulatory requirements for timely risk assessment
+
+5. Competitive advantage through faster reaction to market events
+
+6. Reduced operational risk through real-time decision making
+
+7. Enhanced stress testing capabilities for regulatory compliance
+
+8. Improved capital efficiency through more accurate risk assessment
+
